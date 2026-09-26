@@ -1,0 +1,5 @@
+# Internal tool you trust the factory with. Forces the simple mode and trims budgets further.
+mode: simple
+budget:
+  stage_tokens:
+    build: 100000

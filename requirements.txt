@@ -1,0 +1,10 @@
+pyyaml>=6.0
+pytest>=8.0
+# LLM providers: install only the ones your model set uses (python -m factory models tells you)
+anthropic>=0.40
+# openai>=1.40          # for model_set openai / mixed_budget, or local OpenAI-compatible servers
+# google-genai>=1.0     # for model_set gemini / mixed_budget
+# Optional deterministic QA checks (skipped automatically if not installed)
+ruff>=0.5
+mypy>=1.10
+bandit>=1.7

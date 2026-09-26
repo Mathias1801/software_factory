@@ -1,0 +1,15 @@
+# Customer-facing SaaS: full-stack mode, stricter human involvement, Docker deploy.
+mode: fullstack
+agents:
+  reviewer: {tier: strong}
+stages:
+  qa: {llm_review: always}
+  deploy:
+    target: docker
+    commands:
+      - "docker build -t {project} ."
+human:
+  autonomy: low
+  question_batching: per_task
+tools:
+  enabled: [statistics, expenses, web_search]

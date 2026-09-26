@@ -1,0 +1,4 @@
+# For --mock runs: keeps deterministic checks to what is always installed.
+stages:
+  qa:
+    checks: [compile, pytest]

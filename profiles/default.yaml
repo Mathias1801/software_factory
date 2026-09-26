@@ -1,0 +1,216 @@
+# The general recipe. Layers: this file < modes.<mode>.overrides < your project profile.
+
+# ---------------------------------------------------------------------------------------------
+# Which LLMs are used (see factory/models.py). Switch everything with one line: model_set.
+# A model is "provider:model_id"; a bare id means Anthropic. Check exact model ids with each
+# provider before a real run (OpenAI and Gemini ids below follow their published names).
+# ---------------------------------------------------------------------------------------------
+model_set: anthropic        # anthropic | anthropic_lean | anthropic_max | openai | gemini | mixed_budget
+
+model_sets:
+  anthropic:                # default: good quality, moderate cost
+    cheap: anthropic:claude-haiku-4-5-20251001
+    mid: anthropic:claude-sonnet-5
+    strong: anthropic:claude-opus-5-5
+  anthropic_lean:           # cheapest all-Claude setup
+    cheap: anthropic:claude-haiku-4-5-20251001
+    mid: anthropic:claude-haiku-4-5-20251001
+    strong: anthropic:claude-sonnet-5
+  anthropic_max:            # highest quality, roughly 2x the default cost
+    cheap: anthropic:claude-sonnet-5
+    mid: anthropic:claude-opus-5-5
+    strong: anthropic:claude-fable-5-1
+  openai:
+    cheap: openai:gpt-5.6-luna
+    mid: openai:gpt-5.6-terra
+    strong: openai:gpt-5.6-sol
+  gemini:
+    cheap: gemini:gemini-3.8-flash
+    mid: gemini:gemini-3.1-pro
+    strong: gemini:gemini-3.1-pro
+  mixed_budget:             # cheapest cross-provider mix, Claude kept for planning
+    cheap: openai:gpt-5.6-luna
+    mid: gemini:gemini-3.8-flash
+    strong: anthropic:claude-sonnet-5
+
+models: {}                  # per-tier overrides on top of the set, e.g. {strong: anthropic:claude-opus-5-5}
+
+providers:                  # how to reach each provider; only the ones you use need keys or packages
+  anthropic: {api_key_env: ANTHROPIC_API_KEY}
+  openai: {api_key_env: OPENAI_API_KEY}
+  gemini: {api_key_env: GEMINI_API_KEY}
+  local:                    # any OpenAI-compatible server (Ollama, vLLM, LM Studio); use as local:<model>
+    type: openai_compatible
+    base_url: http://localhost:11434/v1
+    api_key_env: LOCAL_LLM_API_KEY
+    max_tokens_param: max_tokens
+    json_mode: false
+
+pricing:                    # USD per million tokens [input, output], for cost estimates only (checked Sep 2026)
+  claude-haiku-4-5-20251001: [1, 5]
+  claude-sonnet-5: [2, 10]
+  claude-opus-5-5: [4, 20]
+  claude-fable-5-1: [10, 50]
+  gpt-5.6-luna: [0.2, 1.2]
+  gpt-5.6-terra: [2, 12]
+  gpt-5.6-sol: [4, 20]      # promotional until at least 21 Nov 2026, then [5, 30]
+  gpt-6-astra: [10, 50]
+  gemini-3.1-flash-lite: [0.25, 1.5]
+  gemini-3.8-flash: [0.75, 3.75]   # introductory until 31 Dec 2026, then [1.5, 7.5]
+  gemini-3.1-pro: [2, 12]
+
+workspace: ~/factory_projects   # each project gets one master folder here: <workspace>/<project>/
+mode: auto                      # auto (planner suggests, you confirm) | simple | prototype | fullstack
+
+agents:                     # tier per agent (defaults in roles.py); add model: provider:id to pin one agent to a model
+  planner: {tier: strong}   # thinking pays off here. Example pin: {model: openai:gpt-5.6-sol}
+  critic: {tier: cheap}
+  test_engineer: {tier: mid}
+  builder: {tier: cheap}    # escalates on repeated failures
+  reviewer: {tier: mid}
+  release_manager: {tier: cheap}
+
+guidance: {}                # extra instructions per agent; modes fill this in
+
+stages:
+  plan:
+    max_interview_rounds: 4
+    max_questions_per_round: 5
+    max_output_tokens: 6000
+  build:
+    max_output_tokens: 8000
+  qa:
+    checks: [compile, pytest, ruff]   # deterministic, zero tokens; available: compile, pytest, ruff, mypy, bandit
+    llm_review: risky                 # always | risky (tagged tasks or big diffs) | never
+    review_min_diff_lines: 80
+    max_loops: 4
+  deploy:
+    enabled: true
+    target: local           # label only; the commands define what actually happens
+    commands: []            # e.g. ["docker build -t {project} ."]; run in app/
+    rollback_commands: []
+  monitor:
+    enabled: false
+    health_urls: []         # e.g. ["http://localhost:8000/health"]
+
+quality:
+  spec_critic: true         # cheap review of the spec for ambiguity and gaps before sign-off
+  critic_max_issues: 5
+  test_first: false         # acceptance tests written before code, protected from the builder
+  integration_check: true   # full check suite once after all tasks (zero tokens, one fix attempt)
+  handoff_readme: true      # README for the delivered app, written from spec + repo map (not code)
+  lessons: true             # reuse lessons from earlier projects in the workspace (no extra calls)
+  max_lessons: 3
+  cost_estimate: true       # show a token estimate at spec sign-off
+  default_tokens_per_task: 30000
+
+outputs:
+  dashboard: true           # write dashboard.html in the master folder
+
+specialists:
+  enabled: true
+  allowed: [security, database, frontend]   # must exist as specialist roles in factory/agents/roles.py
+  estimated_tokens: 40000                   # do not call a specialist if less build budget is left
+
+tools:
+  enabled: [statistics, expenses]   # free local tools on by default (factory/agents/tools.py)
+  denied: []                        # tools you never want used or suggested (overrides everything)
+  suggestions: ask                  # ask | log (only docs/tool_suggestions.md) | off
+  web_search_model: claude-haiku-4-5-20251001   # web_search runs on Anthropic's search tool (needs ANTHROPIC_API_KEY)
+  max_rounds_per_call: 1            # tool round trips per model call (each round re-sends the prompt)
+  max_calls_per_round: 3
+  max_result_chars: 4000
+
+escalation:
+  on_repeated_failure: 2    # same failure this many times -> specialist (if the domain matches)
+  strong_model_after: 3     # same failure this many times -> strong tier
+  on_risk_tags: [auth, payments, migration]
+
+human:
+  autonomy: medium          # low | medium | high
+  interview:
+    enabled: true
+    require_readback: true
+  approval_required_for: [spec, architecture, scope_change, deploy]
+  always_ask_on: [auth, payments, data_deletion, migration, external_cost]
+  question_batching: per_stage   # per_stage | per_task
+
+budget:
+  stage_tokens:
+    plan: 150000
+    tests: 40000
+    build: 400000
+    qa: 150000
+    handoff: 15000
+    tools: 50000
+  warn_at: 0.8
+  on_exceeded: ask_human    # ask_human | stop | continue
+  extend_factor: 1.5
+  max_same_failure: 2       # after escalating to strong, stop early and ask the human
+
+context:
+  max_file_chars: 40000
+  max_feedback_chars: 6000
+  repo_map_max_files: 200
+
+# ---------------------------------------------------------------------------------------------
+# Build modes. The planner suggests one from the idea and you confirm (or pass --mode).
+# Each mode only lists what differs from the defaults above.
+# ---------------------------------------------------------------------------------------------
+modes:
+  simple:
+    description: Small script, CLI or single-purpose tool. Minimal ceremony, lowest cost.
+    overrides:
+      stages:
+        plan: {max_interview_rounds: 2, max_questions_per_round: 3}
+        qa: {checks: [compile, pytest], llm_review: never, max_loops: 3}
+        deploy: {enabled: false}
+      quality: {spec_critic: false, test_first: false}
+      outputs: {dashboard: false}
+      specialists: {enabled: false}
+      tools: {suggestions: log}
+      human: {autonomy: high, approval_required_for: [spec, scope_change]}
+      budget:
+        stage_tokens: {plan: 40000, tests: 0, build: 120000, qa: 20000, handoff: 8000, tools: 15000}
+      guidance:
+        planner: Keep it to one to three tasks. No architecture beyond what the idea needs.
+        builder: Keep it in as few files as sensible. Prefer the standard library.
+        release_manager: Keep the README short.
+
+  prototype:
+    description: Demo or proof of concept. Working core flow fast; polish, auth and scale are out of scope.
+    overrides:
+      stages:
+        plan: {max_interview_rounds: 3, max_questions_per_round: 4}
+        qa: {checks: [compile, pytest, ruff], llm_review: never, max_loops: 3}
+        deploy: {enabled: false}
+      quality: {spec_critic: true, critic_max_issues: 3, test_first: false}
+      outputs: {dashboard: false}
+      specialists: {enabled: false}
+      human: {autonomy: high}
+      budget:
+        stage_tokens: {plan: 80000, tests: 0, build: 250000, qa: 50000, handoff: 10000, tools: 30000}
+      guidance:
+        planner: Optimise for a working demo of the core flow. Put polish, auth and scaling in out_of_scope unless asked.
+        critic: Only raise issues that would break the core flow.
+        builder: Happy path first, keep the code easy to change, and record shortcuts as assumptions.
+
+  fullstack:
+    description: Production-grade app with several components (backend, frontend, data). Full quality gates.
+    overrides:
+      stages:
+        qa: {checks: [compile, pytest, ruff, mypy, bandit], llm_review: risky, max_loops: 4}
+        deploy: {enabled: true}
+        monitor: {enabled: true}
+      quality: {spec_critic: true, test_first: true}
+      outputs: {dashboard: true}
+      specialists: {enabled: true}
+      human: {autonomy: medium}
+      budget:
+        stage_tokens: {plan: 200000, tests: 80000, build: 800000, qa: 250000, handoff: 20000, tools: 60000}
+      guidance:
+        planner: >-
+          Make T1 a skeleton task (project structure, configuration, interfaces, health endpoint).
+          Keep backend, frontend and data work in separate tasks and tag them with domain_tags.
+        test_engineer: Cover error cases and boundaries named in the criteria, not only the happy path.
+        builder: Follow the structure from the skeleton task. Changing a shared interface is a costly decision.
